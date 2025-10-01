@@ -15,6 +15,8 @@ env:
     APP_ENV: ${{ vars.ENV }}
     # Optional runtime service account email for Cloud Run
     RUNTIME_SA: ${{ vars.RUNTIME_SA }}
+    # Also expose to Cloud SDK default project if any tool reads it
+    CLOUDSDK_CORE_PROJECT: ${{ secrets.GCP_PROJECT_ID }}
 
 jobs:
     deploy:
@@ -37,6 +39,28 @@ jobs:
             - name: Configure Docker
               run: gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
 
+            - name: Preflight - validate PROJECT_ID and auth
+              run: |-
+                  set -euo pipefail
+                  PID="${{ env.PROJECT_ID }}"
+                  if [ -z "$PID" ]; then
+                    echo "PROJECT_ID is empty. Set secrets.GCP_PROJECT_ID to a valid Project ID (e.g., my-project-12345)." >&2
+                    exit 1
+                  fi
+                  if printf '%s' "$PID" | grep -qE '[[:space:]]'; then
+                    echo "PROJECT_ID contains whitespace. Use the Project ID, not the human-readable Project Name." >&2
+                    exit 1
+                  fi
+                  if printf '%s' "$PID" | grep -qE '[A-Z]'; then
+                    echo "PROJECT_ID contains uppercase letters. Project IDs are lowercase with hyphens." >&2
+                    exit 1
+                  fi
+                  if ! printf '%s' "$PID" | grep -Eq '^[a-z][a-z0-9-]{4,28}[a-z0-9]$|^[0-9]{6,}$'; then
+                    echo "PROJECT_ID does not look like a valid Project ID or Project Number." >&2
+                    exit 1
+                  fi
+                  echo "Active account: $(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+
             - name: Ensure Secret Manager has MONGODB_URI (optional grant)
               run: |-
                   set -euo pipefail
@@ -45,7 +69,7 @@ jobs:
                     --project "${{ env.PROJECT_ID }}" \
                     --replication-policy=automatic \
                     --data-file=- \
-                  || echo "Secret MONGODB_URI already exists"
+                  || echo "(info) Skipping creation: MONGODB_URI may already exist or Project/perm error; proceeding to add version."
                   echo -n "${{ secrets.MONGODB_URI }}" | gcloud secrets versions add MONGODB_URI \
                     --project "${{ env.PROJECT_ID }}" \
                     --data-file=-
