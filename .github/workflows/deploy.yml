@@ -31,9 +31,13 @@ jobs:
 
             - name: Set up Cloud SDK
               uses: "google-github-actions/setup-gcloud@v1"
+              with:
+                  project_id: ${{ env.PROJECT_ID }}
 
             - name: Configure Docker
-              run: gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
+              run: |
+                  gcloud config set project "${{ env.PROJECT_ID }}"
+                  gcloud auth configure-docker ${{ env.GAR_LOCATION }}-docker.pkg.dev
 
             - name: Ensure Secret Manager has MONGODB_URI and grant access
               run: |-
@@ -69,6 +73,7 @@ jobs:
                     --image ${IMAGE_TAG} \
                     --platform managed \
                     --region ${{ env.GAR_LOCATION }} \
+                    --project ${{ env.PROJECT_ID }} \
                     --allow-unauthenticated \
                     --set-secrets MONGODB_URI=MONGODB_URI:latest \
                     --set-env-vars DB_NAME=${DB_NAME:-PPFDDB},ENV=${APP_ENV:-production}
